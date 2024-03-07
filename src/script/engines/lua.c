@@ -369,6 +369,24 @@ static const luaL_Reg _mSTList[] = {
 	{ NULL, NULL }
 };
 
+extern int WriteCustomPalette(uint32_t addr, uint16_t value);
+extern int custom_sprite_id;
+
+static int writeCustomPalette(lua_State* lua) {
+    uint32_t addr = luaL_checkinteger(lua, 1);
+    uint16_t value = luaL_checkinteger(lua, 2);
+
+    if (WriteCustomPalette(addr, value) == -1)
+        luaL_error(lua, "Invalid GL renderer");
+    return 0;
+}
+
+static int setCustomSpriteId(lua_State* lua) {
+    int n = luaL_checkinteger(lua, 1);
+    custom_sprite_id = n;
+    return 0;
+}
+
 struct mScriptEngineContext* _luaCreate(struct mScriptEngine2* engine, struct mScriptContext* context) {
 	struct mScriptEngineContextLua* luaContext = calloc(1, sizeof(*luaContext));
 	luaContext->d = (struct mScriptEngineContext) {
@@ -387,6 +405,12 @@ struct mScriptEngineContext* _luaCreate(struct mScriptEngine2* engine, struct mS
 	luaContext->func = -1;
 
 	luaL_openlibs(luaContext->lua);
+
+        lua_pushcfunction(luaContext->lua, writeCustomPalette);
+        lua_setglobal(luaContext->lua, "writeCustomPalette"); 
+
+        lua_pushcfunction(luaContext->lua, setCustomSpriteId);
+        lua_setglobal(luaContext->lua, "setCustomSpriteId");
 
 	luaL_newmetatable(luaContext->lua, "mSTStruct");
 #if LUA_VERSION_NUM < 502

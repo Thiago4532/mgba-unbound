@@ -156,7 +156,7 @@ struct GBAVideoGLRenderer {
 	bool outputTexDirty;
 
 	GLuint paletteTex;
-	uint16_t shadowPalette[GBA_VIDEO_VERTICAL_PIXELS][512];
+	uint16_t shadowPalette[GBA_VIDEO_VERTICAL_PIXELS][528];
 	int nextPalette;
 	int paletteDirtyScanlines;
 	bool paletteDirty;
