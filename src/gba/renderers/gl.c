@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2019 Jeffrey Pfau
+/* Copyright (c) 2013-e019 Jeffrey Pfau
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -35,7 +35,7 @@ static void GBAVideoGLRendererWriteBGY_LO(struct GBAVideoGLBackground* bg, uint1
 static void GBAVideoGLRendererWriteBGY_HI(struct GBAVideoGLBackground* bg, uint16_t value);
 static void GBAVideoGLRendererWriteBLDCNT(struct GBAVideoGLRenderer* renderer, uint16_t value);
 
-static void GBAVideoGLRendererDrawSprite(struct GBAVideoGLRenderer* renderer, struct GBAObj* sprite, int y, int spriteY, bool custom);
+static void GBAVideoGLRendererDrawSprite(struct GBAVideoGLRenderer* renderer, struct GBAObj* sprite, int y, int spriteY, int custom_palette);
 static void GBAVideoGLRendererDrawBackgroundMode0(struct GBAVideoGLRenderer* renderer, struct GBAVideoGLBackground* background, int y);
 static void GBAVideoGLRendererDrawBackgroundMode2(struct GBAVideoGLRenderer* renderer, struct GBAVideoGLBackground* background, int y);
 static void GBAVideoGLRendererDrawBackgroundMode3(struct GBAVideoGLRenderer* renderer, struct GBAVideoGLBackground* background, int y);
@@ -779,7 +779,7 @@ void GBAVideoGLRendererInit(struct GBAVideoRenderer* renderer) {
     glBindTexture(GL_TEXTURE_2D, glRenderer->paletteTex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 528, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 768, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 0);
 
     glGenBuffers(1, &glRenderer->vbo);
     glBindBuffer(GL_ARRAY_BUFFER, glRenderer->vbo);
@@ -893,6 +893,8 @@ void GBAVideoGLRendererDeinit(struct GBAVideoRenderer* renderer) {
     }
 }
 
+int custom_sprites[256];
+
 void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
     struct GBAVideoGLRenderer* glRenderer = (struct GBAVideoGLRenderer*) renderer;
 
@@ -945,6 +947,9 @@ void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
     glRenderer->winN[1].offsetX = 0;
     glRenderer->winN[1].offsetY = 0;
 
+    for (int i = 0; i < 256; i++)
+        custom_sprites[i] = -1;
+
     for (i = 0; i < 512; ++i) {
         int r = M_R5(glRenderer->d.palette[i]);
         int g = M_G5(glRenderer->d.palette[i]) << 1;
@@ -952,7 +957,7 @@ void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
         int b = M_B5(glRenderer->d.palette[i]);
         glRenderer->shadowPalette[0][i] = (r << 11) | (g << 5) | b;
     }
-    for (i = 512; i < 528; ++i) {
+    for (i = 512; i < 768; ++i) {
         int r = 255;
         int g = 0;
         g |= g >> 5;
@@ -1410,7 +1415,7 @@ void GBAVideoGLRendererDrawScanline(struct GBAVideoRenderer* renderer, int y) {
             glRenderer->paletteDirty = false;
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, glRenderer->paletteTex);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 528, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, glRenderer->shadowPalette);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 768, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, glRenderer->shadowPalette);
         }
     }
 
@@ -1474,8 +1479,6 @@ void GBAVideoGLRendererDrawScanline(struct GBAVideoRenderer* renderer, int y) {
     }
 }
 
-int custom_sprite_id = -1;
-
 void _drawScanlines(struct GBAVideoGLRenderer* glRenderer, int y) {
     glEnable(GL_SCISSOR_TEST);
 
@@ -1495,7 +1498,7 @@ void _drawScanlines(struct GBAVideoGLRenderer* glRenderer, int y) {
     if (glRenderer->paletteDirty) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, glRenderer->paletteTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 528, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, glRenderer->shadowPalette);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 768, GBA_VIDEO_VERTICAL_PIXELS, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, glRenderer->shadowPalette);
     }
 
     GBAVideoGLRendererDrawWindow(glRenderer, y);
@@ -1508,7 +1511,8 @@ void _drawScanlines(struct GBAVideoGLRenderer* glRenderer, int y) {
                 continue;
             }
 
-            GBAVideoGLRendererDrawSprite(glRenderer, &sprite->obj, y, sprite->y, (i == custom_sprite_id));
+            int custom = custom_sprites[sprite->index];
+            GBAVideoGLRendererDrawSprite(glRenderer, &sprite->obj, y, sprite->y, custom);
 
             int startY = sprite->y;
             int endY = sprite->endY;
@@ -1727,7 +1731,7 @@ void _finalizeLayers(struct GBAVideoGLRenderer* renderer) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void GBAVideoGLRendererDrawSprite(struct GBAVideoGLRenderer* renderer, struct GBAObj* sprite, int y, int spriteY, bool custom) {
+void GBAVideoGLRendererDrawSprite(struct GBAVideoGLRenderer* renderer, struct GBAObj* sprite, int y, int spriteY, int custom_palette) {
     int width = GBAVideoObjSizes[GBAObjAttributesAGetShape(sprite->a) * 4 + GBAObjAttributesBGetSize(sprite->b)][0];
     int height = GBAVideoObjSizes[GBAObjAttributesAGetShape(sprite->a) * 4 + GBAObjAttributesBGetSize(sprite->b)][1];
     int32_t x = (uint32_t) GBAObjAttributesBGetX(sprite->b) << 23;
@@ -1786,7 +1790,7 @@ void GBAVideoGLRendererDrawSprite(struct GBAVideoGLRenderer* renderer, struct GB
     glUniform1i(uniforms[GBA_GL_OBJ_CHARBASE], charBase);
     glUniform1i(uniforms[GBA_GL_OBJ_TILE], tile);
     glUniform1i(uniforms[GBA_GL_OBJ_STRIDE], stride);
-    GBAObjAttributesC palette_ = custom ? 16 : GBAObjAttributesCGetPalette(sprite->c);
+    GBAObjAttributesC palette_ = custom_palette >= 0 && custom_palette <= 32 ? custom_palette : GBAObjAttributesCGetPalette(sprite->c);
     glUniform1i(uniforms[GBA_GL_OBJ_LOCALPALETTE], palette_);
     glUniform4i(uniforms[GBA_GL_OBJ_INFLAGS], GBAObjAttributesCGetPriority(sprite->c),
             (renderer->target1Obj || GBAObjAttributesAGetMode(sprite->a) == OBJ_MODE_SEMITRANSPARENT) | (renderer->target2Obj * 2) | (renderer->blendEffect * 4),

@@ -370,7 +370,7 @@ static const luaL_Reg _mSTList[] = {
 };
 
 extern int WriteCustomPalette(uint32_t addr, uint16_t value);
-extern int custom_sprite_id;
+extern int custom_sprites[256];
 
 static int writeCustomPalette(lua_State* lua) {
     uint32_t addr = luaL_checkinteger(lua, 1);
@@ -381,9 +381,13 @@ static int writeCustomPalette(lua_State* lua) {
     return 0;
 }
 
-static int setCustomSpriteId(lua_State* lua) {
-    int n = luaL_checkinteger(lua, 1);
-    custom_sprite_id = n;
+static int setCustomPaletteForSprite(lua_State* lua) {
+    int sprite = luaL_checkinteger(lua, 1);
+    if (sprite < 0 || sprite > 256)
+        return luaL_error(lua, "Invalid sprite ID");
+    int palette = luaL_checkinteger(lua, 2);
+
+    custom_sprites[sprite] = palette;
     return 0;
 }
 
@@ -409,8 +413,8 @@ struct mScriptEngineContext* _luaCreate(struct mScriptEngine2* engine, struct mS
         lua_pushcfunction(luaContext->lua, writeCustomPalette);
         lua_setglobal(luaContext->lua, "writeCustomPalette"); 
 
-        lua_pushcfunction(luaContext->lua, setCustomSpriteId);
-        lua_setglobal(luaContext->lua, "setCustomSpriteId");
+        lua_pushcfunction(luaContext->lua, setCustomPaletteForSprite);
+        lua_setglobal(luaContext->lua, "setCustomPaletteForSprite");
 
 	luaL_newmetatable(luaContext->lua, "mSTStruct");
 #if LUA_VERSION_NUM < 502
