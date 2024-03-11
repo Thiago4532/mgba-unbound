@@ -14,6 +14,9 @@
 #include <mgba/internal/gba/renderers/cache-set.h>
 #include <mgba-util/memory.h>
 
+int custom_sprite_palette[256];
+static uint16_t custom_palettes[256];
+
 static void GBAVideoGLRendererInit(struct GBAVideoRenderer* renderer);
 static void GBAVideoGLRendererDeinit(struct GBAVideoRenderer* renderer);
 static void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer);
@@ -760,8 +763,8 @@ struct GBAVideoGLRenderer* globalGlRenderer = NULL;
 
 void GBAVideoGLRendererInit(struct GBAVideoRenderer* renderer) {
     struct GBAVideoGLRenderer* glRenderer = (struct GBAVideoGLRenderer*) renderer;
-    if (globalGlRenderer != NULL)
-        TWARN("Multiple GL renderers!");
+    // if (globalGlRenderer != NULL)
+    //     TWARN("Multiple GL renderers!");
     globalGlRenderer = glRenderer;
     glRenderer->temporaryBuffer = NULL;
 
@@ -856,14 +859,25 @@ void GBAVideoGLRendererInit(struct GBAVideoRenderer* renderer) {
     glBindVertexArray(0);
     glDeleteShader(vs);
 
+    memset(custom_sprite_palette, -1, sizeof(custom_sprite_palette));
+    // for (i = 0; i < 256; ++i) {
+    //     int r = 255;
+    //     int g = 0;
+    //     g |= g >> 5;
+    //     int b = 0;
+    //     custom_palettes[i] = (r << 11) | (g << 5) | b;
+    // }
+
     GBAVideoGLRendererReset(renderer);
 }
 
 void GBAVideoGLRendererDeinit(struct GBAVideoRenderer* renderer) {
     struct GBAVideoGLRenderer* glRenderer = (struct GBAVideoGLRenderer*) renderer;
-    if (globalGlRenderer != glRenderer)
-        TWARN("Deiniting wrong GL renderer!");
-    else
+    // if (globalGlRenderer != glRenderer)
+    //     TWARN("Deiniting wrong GL renderer!");
+    // else
+    //     globalGlRenderer = NULL;
+    if (globalGlRenderer == glRenderer)
         globalGlRenderer = NULL;
 
     if (glRenderer->temporaryBuffer) {
@@ -892,7 +906,6 @@ void GBAVideoGLRendererDeinit(struct GBAVideoRenderer* renderer) {
     }
 }
 
-int custom_sprites[256];
 
 void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
     struct GBAVideoGLRenderer* glRenderer = (struct GBAVideoGLRenderer*) renderer;
@@ -946,9 +959,6 @@ void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
     glRenderer->winN[1].offsetX = 0;
     glRenderer->winN[1].offsetY = 0;
 
-    for (int i = 0; i < 256; i++)
-        custom_sprites[i] = -1;
-
     for (i = 0; i < 512; ++i) {
         int r = M_R5(glRenderer->d.palette[i]);
         int g = M_G5(glRenderer->d.palette[i]) << 1;
@@ -956,13 +966,10 @@ void GBAVideoGLRendererReset(struct GBAVideoRenderer* renderer) {
         int b = M_B5(glRenderer->d.palette[i]);
         glRenderer->shadowPalette[0][i] = (r << 11) | (g << 5) | b;
     }
-    for (i = 512; i < 768; ++i) {
-        int r = 255;
-        int g = 0;
-        g |= g >> 5;
-        int b = 0;
-        glRenderer->shadowPalette[0][i] = (r << 11) | (g << 5) | b;
-    }
+
+    _Static_assert(sizeof(*custom_palettes) == sizeof(*glRenderer->shadowPalette[0]),
+            "custom_palettes type mismatch");
+    memcpy(glRenderer->shadowPalette[0] + 512, custom_palettes, sizeof(custom_palettes));
 }
 
 void GBAVideoGLRendererWriteVRAM(struct GBAVideoRenderer* renderer, uint32_t address) {
@@ -994,21 +1001,45 @@ void GBAVideoGLRendererWritePalette(struct GBAVideoRenderer* renderer, uint32_t 
 }
 
 // export
-int WriteCustomPalette(uint32_t addr, uint16_t value);
+const char* WriteCustomPalette(uint32_t addr, uint16_t value);
+const char* WriteCustomPalette2(uint32_t addr, uint16_t* values, uint32_t size);
 
-int WriteCustomPalette(uint32_t addr, uint16_t value) {
+const char* WriteCustomPalette(uint32_t addr, uint16_t value) {
+    if (addr >= 256)
+        return "Invalid address";
+
     struct GBAVideoGLRenderer* glRenderer = globalGlRenderer;
-    if (!glRenderer)
-        return -1;
+    if (glRenderer) {
+        glRenderer->paletteDirty = true;
+        glRenderer->paletteDirtyScanlines = GBA_VIDEO_VERTICAL_PIXELS;
+    }
 
-    glRenderer->paletteDirty = true;
     int r = M_R5(value);
     int g = M_G5(value) << 1;
     g |= g >> 5;
     int b = M_B5(value);
-    glRenderer->paletteDirtyScanlines = GBA_VIDEO_VERTICAL_PIXELS;
-    glRenderer->shadowPalette[glRenderer->nextPalette][512 + addr] = (r << 11) | (g << 5) | b;
-    return 0;
+    custom_palettes[addr] = (r << 11) | (g << 5) | b;
+    return NULL;
+}
+
+const char* WriteCustomPaletteRange(uint32_t addr, uint16_t* values, uint32_t size) {
+    if (addr + size > 256)
+        return "Invalid address";
+
+    struct GBAVideoGLRenderer* glRenderer = globalGlRenderer;
+    if (glRenderer) {
+        glRenderer->paletteDirty = true;
+        glRenderer->paletteDirtyScanlines = GBA_VIDEO_VERTICAL_PIXELS;
+    }
+
+    for (uint32_t i = 0; i < size; i++) {
+        int r = M_R5(values[i]);
+        int g = M_G5(values[i]) << 1;
+        g |= g >> 5;
+        int b = M_B5(values[i]);
+        custom_palettes[addr + i] = (r << 11) | (g << 5) | b;
+    }
+    return NULL;
 }
 
 uint16_t GBAVideoGLRendererWriteVideoRegister(struct GBAVideoRenderer* renderer, uint32_t address, uint16_t value) {
@@ -1406,7 +1437,9 @@ void GBAVideoGLRendererDrawScanline(struct GBAVideoRenderer* renderer, int y) {
         glRenderer->nextPalette = 0;
     }
     if (glRenderer->paletteDirty) {
-        memcpy(glRenderer->shadowPalette[glRenderer->nextPalette], glRenderer->shadowPalette[oldPalette], sizeof(glRenderer->shadowPalette[0]));
+        memcpy(glRenderer->shadowPalette[glRenderer->nextPalette], glRenderer->shadowPalette[oldPalette], sizeof(glRenderer->shadowPalette[0][0]) * 512);
+        memcpy(glRenderer->shadowPalette[glRenderer->nextPalette] + 512, custom_palettes, sizeof(custom_palettes));
+
         if (glRenderer->paletteDirtyScanlines > 0) {
             --glRenderer->paletteDirtyScanlines;
         }
@@ -1510,7 +1543,7 @@ void _drawScanlines(struct GBAVideoGLRenderer* glRenderer, int y) {
                 continue;
             }
 
-            int custom = custom_sprites[sprite->index];
+            int custom = custom_sprite_palette[sprite->index];
             GBAVideoGLRendererDrawSprite(glRenderer, &sprite->obj, y, sprite->y, custom);
 
             int startY = sprite->y;

@@ -369,15 +369,54 @@ static const luaL_Reg _mSTList[] = {
 	{ NULL, NULL }
 };
 
-extern int WriteCustomPalette(uint32_t addr, uint16_t value);
-extern int custom_sprites[256];
+extern int custom_sprite_palette[256];
+
+extern const char* WriteCustomPalette(uint32_t addr, uint16_t value);
+extern const char* WriteCustomPaletteRange(uint32_t addr, uint16_t* values, uint32_t size);
 
 static int writeCustomPalette(lua_State* lua) {
+    // probably should check if the value fits the type
     uint32_t addr = luaL_checkinteger(lua, 1);
     uint16_t value = luaL_checkinteger(lua, 2);
 
-    if (WriteCustomPalette(addr, value) == -1)
-        luaL_error(lua, "Invalid GL renderer");
+    if (addr >= 256)
+        luaL_error(lua, "Invalid palette address");
+
+    const char* err = WriteCustomPalette(addr, value);
+    if (err)
+        luaL_error(lua, err);
+    return 0;
+}
+
+static int writeCustomPaletteRange(lua_State* lua) {
+    // probably should check if the value fits the type
+    uint32_t addr = luaL_checkinteger(lua, 1);
+    luaL_checktype(lua, 2, LUA_TTABLE);
+
+    uint16_t values[256];
+    uint32_t size = 0;
+
+    for (int i = 1;; i++) {
+        if (lua_geti(lua, 2, i) == LUA_TNIL) {
+            lua_pop(lua, 1);
+            break;
+        }
+        if (i > 256)
+            return luaL_error(lua, "Too many values in the table");
+
+        int success;
+        uint16_t value = lua_tointegerx(lua, -1, &success);
+        lua_pop(lua, 1);
+        if (!success)
+            return luaL_error(lua, "Value at index %d is not an integer", i);
+
+        values[i - 1] = value;
+        size++;
+    }
+
+    const char* err = WriteCustomPaletteRange(addr, values, size);
+    if (err)
+        luaL_error(lua, err);
     return 0;
 }
 
@@ -387,7 +426,7 @@ static int setCustomPaletteForSprite(lua_State* lua) {
         return luaL_error(lua, "Invalid sprite ID");
     int palette = luaL_checkinteger(lua, 2);
 
-    custom_sprites[sprite] = palette;
+    custom_sprite_palette[sprite] = palette;
     return 0;
 }
 
@@ -412,6 +451,9 @@ struct mScriptEngineContext* _luaCreate(struct mScriptEngine2* engine, struct mS
 
         lua_pushcfunction(luaContext->lua, writeCustomPalette);
         lua_setglobal(luaContext->lua, "writeCustomPalette"); 
+
+        lua_pushcfunction(luaContext->lua, writeCustomPaletteRange);
+        lua_setglobal(luaContext->lua, "writeCustomPaletteRange"); 
 
         lua_pushcfunction(luaContext->lua, setCustomPaletteForSprite);
         lua_setglobal(luaContext->lua, "setCustomPaletteForSprite");
