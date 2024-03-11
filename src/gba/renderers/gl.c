@@ -13,7 +13,6 @@
 #include <mgba/internal/gba/io.h>
 #include <mgba/internal/gba/renderers/cache-set.h>
 #include <mgba-util/memory.h>
-#include <mgba/thiago_log.h>
 
 static void GBAVideoGLRendererInit(struct GBAVideoRenderer* renderer);
 static void GBAVideoGLRendererDeinit(struct GBAVideoRenderer* renderer);
